@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+# TDLib는 깃허브 빌드에서 자동으로 채워 넣음
+app/src/main/jniLibs/
+app/src/main/java/org/drinkless/
+tdlib-out/
