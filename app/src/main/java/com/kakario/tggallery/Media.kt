@@ -33,6 +33,8 @@ class MediaItem(
     val thumb: TdApi.File?,
     val main: TdApi.File,
     val caption: String,
+    val fileName: String = "",
+    val mime: String = "",
 ) {
     val key get() = "$chatId/$msgId"
 }
@@ -59,21 +61,21 @@ fun TdApi.Message.toMedia(): MediaItem? = when (val c = content) {
         val v = c.video
         MediaItem(
             chatId, id, date, Kind.VIDEO, v.duration, v.width, v.height, v.video.fsize(),
-            v.minithumbnail?.data, v.thumbnail.usable(), v.video, c.caption?.text ?: ""
+            v.minithumbnail?.data, v.thumbnail.usable(), v.video, c.caption?.text ?: "", v.fileName ?: "", v.mimeType ?: ""
         )
     }
     is TdApi.MessageAnimation -> {
         val a = c.animation
         MediaItem(
             chatId, id, date, Kind.GIF, a.duration, a.width, a.height, a.animation.fsize(),
-            a.minithumbnail?.data, a.thumbnail.usable(), a.animation, c.caption?.text ?: ""
+            a.minithumbnail?.data, a.thumbnail.usable(), a.animation, c.caption?.text ?: "", a.fileName ?: "", a.mimeType ?: ""
         )
     }
     else -> null
 }
 
 /** 한 채팅방(또는 전체 채팅)의 사진·영상 목록을 끝까지 불러옴 */
-class MediaLoader(private val scope: CoroutineScope, private val chatId: Long?) {
+class MediaLoader(private val scope: CoroutineScope, private val chatId: Long?, private val chatList: TdApi.ChatList?) {
     val items = MutableStateFlow<List<MediaItem>>(emptyList())
     val loading = MutableStateFlow(true)
     val total = MutableStateFlow(0)
@@ -117,11 +119,36 @@ class MediaLoader(private val scope: CoroutineScope, private val chatId: Long?) 
         var offset = ""
         var first = true
         while (coroutineContext.isActive && items.value.size < 20000) {
-            val r = Td.send(TdApi.SearchMessages(TdApi.ChatListMain(), "", offset, 100, filter, null, 0, 0))
+            val r = Td.send(TdApi.SearchMessages(chatList, "", offset, 100, filter, null, 0, 0))
             if (first) { total.value += r.totalCount; first = false }
             add(r.messages)
             if (r.nextOffset.isNullOrEmpty() || r.messages.isEmpty()) break
             offset = r.nextOffset
+        }
+    }
+}
+
+/** 즐겨찾기 목록을 메시지에서 다시 불러옴 */
+class FavLoader(private val scope: CoroutineScope) {
+    val items = MutableStateFlow<List<MediaItem>>(emptyList())
+    val loading = MutableStateFlow(true)
+    private val cache = HashMap<String, MediaItem>()
+    private val missing = HashSet<String>()
+
+    fun start() {
+        scope.launch {
+            Prefs.favs.collect { keys ->
+                loading.value = true
+                for (k in keys) {
+                    if (k in cache || k in missing) continue
+                    val (c, m) = k.split('/').map { it.toLong() }
+                    val item = try { Td.send(TdApi.GetMessage(c, m)).toMedia() } catch (e: TdError) { null }
+                    if (item != null) cache[k] = item else missing += k
+                    items.value = keys.mapNotNull { cache[it] }
+                }
+                items.value = keys.mapNotNull { cache[it] }
+                loading.value = false
+            }
         }
     }
 }

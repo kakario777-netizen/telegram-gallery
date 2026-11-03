@@ -3,6 +3,7 @@ package com.kakario.tggallery
 import android.content.Context
 import android.os.Build
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.Client
@@ -23,6 +24,12 @@ object Td {
     val keysSet = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     val chats = ConcurrentHashMap<Long, TdApi.Chat>()
+    val users = ConcurrentHashMap<Long, TdApi.User>()
+    val folders = MutableStateFlow<List<TdApi.ChatFolderInfo>>(emptyList())
+    /** 채팅 목록 쪽 변화가 있을 때마다 1씩 올라감 (화면 새로고침용) */
+    val chatTick = MutableStateFlow(0)
+    /** 새 메시지·삭제 등 대화 화면에서 쓰는 업데이트 */
+    val events = MutableSharedFlow<TdApi.Object>(extraBufferCapacity = 512)
 
     private val prefs get() = appCtx.getSharedPreferences("tg", Context.MODE_PRIVATE)
 
@@ -53,6 +60,10 @@ object Td {
         client = Client.create({ onUpdate(it) }, null, null)
     }
 
+    private fun tick() {
+        chatTick.value = chatTick.value + 1
+    }
+
     private fun onUpdate(o: TdApi.Object) {
         when (o) {
             is TdApi.UpdateAuthorizationState -> {
@@ -63,14 +74,28 @@ object Td {
                     is TdApi.AuthorizationStateClosed -> {
                         synchronized(this) { client = null }
                         chats.clear()
+                        users.clear()
+                        folders.value = emptyList()
                         init(appCtx)
                     }
                     else -> {}
                 }
             }
-            is TdApi.UpdateNewChat -> chats[o.chat.id] = o.chat
-            is TdApi.UpdateChatTitle -> chats[o.chatId]?.title = o.title
-            is TdApi.UpdateChatPhoto -> chats[o.chatId]?.photo = o.photo
+            is TdApi.UpdateNewChat -> { chats[o.chat.id] = o.chat; tick() }
+            is TdApi.UpdateChatTitle -> { chats[o.chatId]?.title = o.title; tick() }
+            is TdApi.UpdateChatPhoto -> { chats[o.chatId]?.photo = o.photo; tick() }
+            is TdApi.UpdateChatLastMessage -> {
+                chats[o.chatId]?.let { it.lastMessage = o.lastMessage; it.positions = o.positions }
+                tick()
+            }
+            is TdApi.UpdateChatPosition -> tick()
+            is TdApi.UpdateChatAddedToList -> tick()
+            is TdApi.UpdateChatRemovedFromList -> tick()
+            is TdApi.UpdateChatReadInbox -> { chats[o.chatId]?.unreadCount = o.unreadCount; tick() }
+            is TdApi.UpdateChatFolders -> folders.value = o.chatFolders.toList()
+            is TdApi.UpdateUser -> users[o.user.id] = o.user
+            is TdApi.UpdateNewMessage, is TdApi.UpdateMessageSendSucceeded, is TdApi.UpdateDeleteMessages,
+            is TdApi.UpdateMessageContent -> events.tryEmit(o)
             else -> {}
         }
     }
@@ -90,7 +115,7 @@ object Td {
             systemLanguageCode = "ko"
             deviceModel = Build.MODEL ?: "Android"
             systemVersion = Build.VERSION.RELEASE ?: ""
-            applicationVersion = "0.1"
+            applicationVersion = "0.2"
         }
         client?.send(p) { r ->
             if (r is TdApi.Error) {
@@ -119,7 +144,7 @@ object Td {
             }
         }
 
-    /** 썸네일 등 작은 파일을 받아 경로를 돌려줌 (폰 갤러리에 저장하지 않음, 앱 캐시에만) */
+    /** 썸네일 등 작은 파일을 앱 캐시에 받아 경로를 돌려줌 (폰 갤러리에는 저장하지 않음) */
     suspend fun download(file: TdApi.File, priority: Int): String? {
         if (file.local.isDownloadingCompleted && file.local.path.isNotEmpty() && File(file.local.path).exists()) {
             return file.local.path
@@ -134,4 +159,30 @@ object Td {
     }
 
     suspend fun chat(id: Long): TdApi.Chat = chats[id] ?: send(TdApi.GetChat(id)).also { chats[id] = it }
+
+    fun senderName(s: TdApi.MessageSender?): String = when (s) {
+        is TdApi.MessageSenderUser -> users[s.userId]?.let { "${it.firstName} ${it.lastName}".trim() } ?: ""
+        is TdApi.MessageSenderChat -> chats[s.chatId]?.title ?: ""
+        else -> ""
+    }
+}
+
+fun TdApi.FormattedText?.str(): String = this?.text ?: ""
+
+/** 채팅 목록에 보여줄 마지막 메시지 요약 */
+fun msgPreview(m: TdApi.Message?): String {
+    val c = m?.content ?: return ""
+    fun cap(label: String, t: TdApi.FormattedText?) = if (t.str().isBlank()) label else "$label ${t.str()}"
+    return when (c) {
+        is TdApi.MessageText -> c.text.str()
+        is TdApi.MessagePhoto -> cap("[사진]", c.caption)
+        is TdApi.MessageVideo -> cap("[영상]", c.caption)
+        is TdApi.MessageAnimation -> cap("[GIF]", c.caption)
+        is TdApi.MessageDocument -> cap("[파일] ${c.document.fileName}", c.caption)
+        is TdApi.MessageAudio -> "[음악] ${c.audio.title.ifBlank { c.audio.fileName }}"
+        is TdApi.MessageVoiceNote -> "[음성 메시지]"
+        is TdApi.MessageVideoNote -> "[동그라미 영상]"
+        is TdApi.MessageSticker -> "${c.sticker.emoji} 스티커"
+        else -> "[메시지]"
+    }.replace('\n', ' ')
 }

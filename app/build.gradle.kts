@@ -15,7 +15,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = runNumber
-        versionName = "0.1.$runNumber"
+        versionName = "0.2.$runNumber"
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -57,6 +57,8 @@ dependencies {
     implementation("androidx.annotation:annotation:1.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
 }
