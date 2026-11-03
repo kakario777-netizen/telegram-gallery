@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.combinedClickable
 import org.drinkless.tdlib.TdApi
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -44,6 +46,8 @@ fun Home() {
     var top by rememberSaveable { mutableIntStateOf(1) }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(title = { Text("텔레그램 갤러리") }, actions = {
+            DownloadIndicator()
+            IconButton(onClick = { Nav.push(Nav.Search) }) { Icon(Icons.Default.Search, "검색") }
             IconButton(onClick = { Nav.push(Nav.Settings) }) { Icon(Icons.Default.Settings, "설정") }
         })
         PrimaryTabRow(selectedTabIndex = top) {
@@ -86,15 +90,12 @@ fun ChatLists(galleryMode: Boolean) {
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     if (tab >= tabs.size) tab = 0
-    var query by rememberSaveable { mutableStateOf("") }
+    val query = ""
 
     Column(Modifier.fillMaxSize()) {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp, divider = {}) {
             tabs.forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t.first, maxLines = 1) }) }
         }
-        OutlinedTextField(query, { query = it }, placeholder = { Text("채팅방 이름 검색") }, singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
         key(tab, tabs.size) {
             ChatListBody(tabs[tab].second, tabs[tab].first, galleryMode, query)
         }
@@ -121,6 +122,8 @@ private fun ChatListBody(list: TdApi.ChatList, label: String, galleryMode: Boole
         val l = ids ?: emptyList()
         if (query.isBlank()) l else l.filter { Td.chats[it]?.title?.contains(query, true) == true }
     }
+    var cacheFor by remember { mutableStateOf<TdApi.Chat?>(null) }
+    cacheFor?.let { c -> CacheDialog(c.id, c.title) { cacheFor = null } }
     Column(Modifier.fillMaxSize()) {
         if (ids == null) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(Modifier.fillMaxSize()) {
@@ -146,7 +149,7 @@ private fun ChatListBody(list: TdApi.ChatList, label: String, galleryMode: Boole
             }
             items(shown, key = { it }) { id ->
                 val c = Td.chats[id] ?: return@items
-                ChatRow(c, tick, galleryMode) {
+                ChatRow(c, tick, galleryMode, onLong = { cacheFor = c }) {
                     if (galleryMode) Nav.push(Nav.Media(Target(c.id, null, c.title))) else Nav.push(Nav.Chat(c.id))
                 }
             }
@@ -154,8 +157,9 @@ private fun ChatListBody(list: TdApi.ChatList, label: String, galleryMode: Boole
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(c: TdApi.Chat, @Suppress("UNUSED_PARAMETER") tick: Int, galleryMode: Boolean, onClick: () -> Unit) {
+private fun ChatRow(c: TdApi.Chat, @Suppress("UNUSED_PARAMETER") tick: Int, galleryMode: Boolean, onLong: () -> Unit, onClick: () -> Unit) {
     ListItem(
         headlineContent = { Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (c.unreadCount > 0 && !galleryMode) FontWeight.Bold else null) },
         supportingContent = { Text(msgPreview(c.lastMessage), maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) },
@@ -170,7 +174,7 @@ private fun ChatRow(c: TdApi.Chat, @Suppress("UNUSED_PARAMETER") tick: Int, gall
             }
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLong)
     )
 }
 
@@ -229,6 +233,25 @@ fun SettingsScreen() {
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable { Nav.pickFolder() })
             HorizontalDivider()
+            Section("저장 공간 (임시 저장)")
+            StorageRows(null)
+            HorizontalDivider()
+            Section("자료")
+            val hiddenCount = Prefs.hidden.collectAsState().value.size
+            ListItem(
+                headlineContent = { Text("무시한 자료") },
+                supportingContent = { Text(if (hiddenCount == 0) "없음" else "${hiddenCount}개 · 눌러서 다시 보이게 하기") },
+                leadingContent = { Icon(Ic.EyeOff, null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable { Nav.push(Nav.Hidden) })
+            val cols by Prefs.gridCols.collectAsState()
+            ListItem(
+                headlineContent = { Text("격자 크기") },
+                supportingContent = { Text("한 줄에 ${cols}칸") },
+                leadingContent = { Icon(Ic.Grid, null) },
+                trailingContent = { GridSizeButton() },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            HorizontalDivider()
             Section("화면")
             Text("배경색", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -280,3 +303,49 @@ private fun Section(t: String) {
 }
 
 fun Color.isDark() = (0.299 * red + 0.587 * green + 0.114 * blue) < 0.5
+
+
+/** 캐시 크기 보기 + 영상/썸네일 따로 삭제 (chatId가 null이면 전체) */
+@Composable
+fun StorageRows(chatId: Long?) {
+    var sizes by remember { mutableStateOf<Cache.Sizes?>(null) }
+    var reload by remember { mutableIntStateOf(0) }
+    var ask by remember { mutableStateOf<Boolean?>(null) } // true=영상, false=썸네일
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(chatId, reload) { sizes = null; sizes = runCatching { Cache.sizes(chatId) }.getOrNull() ?: Cache.Sizes(0, 0, 0) }
+    val where = if (chatId == null) "모든 채팅방" else "이 채팅방"
+    ListItem(
+        headlineContent = { Text("영상 시청 캐시") },
+        supportingContent = { Text(sizes?.let { fmtSize(it.video) } ?: "계산 중...") },
+        trailingContent = { TextButton(enabled = !busy && (sizes?.video ?: 0) > 0, onClick = { ask = true }) { Text("삭제") } },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+    ListItem(
+        headlineContent = { Text("썸네일·사진 캐시") },
+        supportingContent = { Text(sizes?.let { fmtSize(it.thumb) } ?: "계산 중...") },
+        trailingContent = { TextButton(enabled = !busy && (sizes?.thumb ?: 0) > 0, onClick = { ask = false }) { Text("삭제") } },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+    val scope = rememberCoroutineScope()
+    ask?.let { video ->
+        val what = if (video) "영상 시청 캐시" else "썸네일·사진 캐시"
+        DoubleConfirm(
+            "$what 삭제",
+            "$where 의 $what ${sizes?.let { fmtSize(if (video) it.video else it.thumb) } ?: ""} 를 지울까요? 다운로드한 파일과 즐겨찾기는 그대로예요.",
+            if (video) "지운 영상은 다시 볼 때 새로 불러와요." else "목록 썸네일을 다시 받느라 처음엔 느릴 수 있어요.",
+            onConfirm = {
+                ask = null; busy = true
+                scope.launch { runCatching { Cache.clear(chatId, video) }; busy = false; reload++ }
+            },
+            onCancel = { ask = null })
+    }
+}
+
+/** 채팅방 꾹 → 그 방 캐시 관리 */
+@Composable
+fun CacheDialog(chatId: Long, title: String, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = { Column { StorageRows(chatId) } },
+        confirmButton = { TextButton(onClick = onClose) { Text("닫기") } })
+}

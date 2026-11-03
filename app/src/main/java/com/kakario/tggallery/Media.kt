@@ -37,6 +37,8 @@ class MediaItem(
     val mime: String = "",
 ) {
     val key get() = "$chatId/$msgId"
+    /** 같은 파일이면 어느 방에 올라와도 같은 값 */
+    val uid: String get() = main.remote?.uniqueId?.takeIf { it.isNotEmpty() } ?: key
 }
 
 private fun TdApi.File.fsize() = if (size > 0) size else expectedSize
@@ -128,8 +130,8 @@ class MediaLoader(private val scope: CoroutineScope, private val chatId: Long?, 
     }
 }
 
-/** 즐겨찾기 목록을 메시지에서 다시 불러옴 */
-class FavLoader(private val scope: CoroutineScope) {
+/** 저장해 둔 "채팅ID/메시지ID" 목록(즐겨찾기·무시 목록)을 메시지에서 다시 불러옴 */
+class KeyLoader(private val scope: CoroutineScope, private val keysFlow: kotlinx.coroutines.flow.Flow<List<String>>) {
     val items = MutableStateFlow<List<MediaItem>>(emptyList())
     val loading = MutableStateFlow(true)
     private val cache = HashMap<String, MediaItem>()
@@ -137,7 +139,7 @@ class FavLoader(private val scope: CoroutineScope) {
 
     fun start() {
         scope.launch {
-            Prefs.favs.collect { keys ->
+            keysFlow.collect { keys ->
                 loading.value = true
                 for (k in keys) {
                     if (k in cache || k in missing) continue

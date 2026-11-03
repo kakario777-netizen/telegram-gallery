@@ -70,11 +70,11 @@ jobs:
         run: |
           gradle :app:assembleRelease --stacktrace
           mkdir -p out
-          cp app/build/outputs/apk/release/app-release.apk "out/telegram-gallery-0.2.${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "out/telegram-gallery-0.3.${{ github.run_number }}.apk"
 
       - name: 릴리스 올리기
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.${{ github.run_number }}
-          name: 텔레그램 갤러리 0.2.${{ github.run_number }}
+          tag_name: v0.3.${{ github.run_number }}
+          name: 텔레그램 갤러리 0.3.${{ github.run_number }}
           files: out/*.apk

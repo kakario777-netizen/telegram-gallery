@@ -78,7 +78,6 @@ fun Viewer(req: Nav.ViewerReq, onClose: () -> Unit) {
         val win = act?.window
         val ctl = win?.let { WindowCompat.getInsetsController(it, view) }
         ctl?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        ctl?.hide(WindowInsetsCompat.Type.systemBars())
         win?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         act?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         onDispose {
@@ -96,7 +95,15 @@ fun Viewer(req: Nav.ViewerReq, onClose: () -> Unit) {
     val pager = rememberPagerState(initialPage = req.start.coerceIn(0, list.size - 1)) { list.size }
     val scope = rememberCoroutineScope()
     var showInfo by remember { mutableStateOf(true) }
+    var videoControls by remember { mutableStateOf(true) }
     val current = list[pager.currentPage]
+    // 세로 화면(전체화면 아님)에서는 아래 네비게이션 바를 항상 보이고, 가로 전체화면에서는 조작 버튼이 보일 때만
+    val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val uiVisible = if (current.kind == Kind.VIDEO) videoControls else showInfo
+    LaunchedEffect(landscape, uiVisible) {
+        val ctl = act?.window?.let { WindowCompat.getInsetsController(it, view) } ?: return@LaunchedEffect
+        if (!landscape || uiVisible) ctl.show(WindowInsetsCompat.Type.systemBars()) else ctl.hide(WindowInsetsCompat.Type.systemBars())
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black).clickable(indication = null, interactionSource = null) {}) {
         HorizontalPager(
@@ -111,7 +118,8 @@ fun Viewer(req: Nav.ViewerReq, onClose: () -> Unit) {
                     hasPrev = page > 0, hasNext = page < list.size - 1,
                     onPrev = { scope.launch { pager.animateScrollToPage(page - 1) } },
                     onNext = { scope.launch { pager.animateScrollToPage(page + 1) } },
-                    onClose = onClose
+                    onClose = onClose,
+                    onControls = { videoControls = it }
                 )
                 m.kind == Kind.GIF && pager.currentPage == page -> Box(Modifier.fillMaxSize().pointerInput(Unit) {
                     detectTapGestures(onTap = { showInfo = !showInfo })
@@ -163,6 +171,10 @@ fun TopBar(m: MediaItem, sub: String, rotLocked: Boolean, onRot: () -> Unit, onC
             Downloader.enqueue(listOf(m))
             if (Prefs.downloadUri.value != null) android.widget.Toast.makeText(ctx, "다운로드를 시작했어요", android.widget.Toast.LENGTH_SHORT).show()
         }) { Icon(Ic.Download, "다운로드", tint = Color.White) }
+        IconButton(onClick = {
+            Prefs.hide(listOf(m))
+            android.widget.Toast.makeText(ctx, "무시했어요. 설정 > 무시한 자료에서 되돌릴 수 있어요", android.widget.Toast.LENGTH_SHORT).show()
+        }) { Icon(Ic.EyeOff, "무시하기", tint = Color.White) }
         IconButton(onClick = onRot) {
             Icon(if (rotLocked) Ic.RotateLock else Ic.Rotate, "회전 잠금", tint = if (rotLocked) Color(0xFF64B5F6) else Color.White)
         }
@@ -199,6 +211,7 @@ private enum class DragMode { NONE, SEEK, BRIGHT, VOLUME }
 fun VideoPage(
     m: MediaItem, rotLocked: Boolean, onRot: () -> Unit,
     hasPrev: Boolean, hasNext: Boolean, onPrev: () -> Unit, onNext: () -> Unit, onClose: () -> Unit,
+    onControls: (Boolean) -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val act = ctx.activity()
@@ -245,6 +258,7 @@ fun VideoPage(
         if (controls && playing && sliderDrag == null && !ended) { delay(3500); controls = false }
     }
     LaunchedEffect(hintTick) { if (hint != null) { delay(700); hint = null } }
+    LaunchedEffect(controls) { onControls(controls) }
 
     fun showHint(s: String) { hint = s; hintTick++ }
     fun togglePlay() {

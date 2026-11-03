@@ -92,6 +92,7 @@ object Td {
             is TdApi.UpdateChatAddedToList -> tick()
             is TdApi.UpdateChatRemovedFromList -> tick()
             is TdApi.UpdateChatReadInbox -> { chats[o.chatId]?.unreadCount = o.unreadCount; tick() }
+            is TdApi.UpdateChatReadOutbox -> { chats[o.chatId]?.lastReadOutboxMessageId = o.lastReadOutboxMessageId; events.tryEmit(o) }
             is TdApi.UpdateChatFolders -> folders.value = o.chatFolders.toList()
             is TdApi.UpdateUser -> users[o.user.id] = o.user
             is TdApi.UpdateNewMessage, is TdApi.UpdateMessageSendSucceeded, is TdApi.UpdateDeleteMessages,
@@ -115,7 +116,7 @@ object Td {
             systemLanguageCode = "ko"
             deviceModel = Build.MODEL ?: "Android"
             systemVersion = Build.VERSION.RELEASE ?: ""
-            applicationVersion = "0.2"
+            applicationVersion = "0.3"
         }
         client?.send(p) { r ->
             if (r is TdApi.Error) {

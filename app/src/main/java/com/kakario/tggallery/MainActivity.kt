@@ -75,7 +75,6 @@ fun Root() {
     val keysSet by Td.keysSet.collectAsState()
     val stack by Nav.stack.collectAsState()
     val viewer by Nav.viewer.collectAsState()
-    val dl by Downloader.state.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
@@ -97,8 +96,10 @@ fun Root() {
                                 .clickable(indication = null, interactionSource = null) {}) {
                                 when (sc) {
                                     is Nav.Media -> MediaScreen(sc.target)
-                                    is Nav.Chat -> ChatScreen(sc.chatId)
+                                    is Nav.Chat -> ChatScreen(sc.chatId, sc.focus)
                                     Nav.Settings -> SettingsScreen()
+                                    Nav.Search -> SearchScreen()
+                                    Nav.Hidden -> HiddenScreen()
                                 }
                             }
                         }
@@ -108,19 +109,5 @@ fun Root() {
             }
         }
         viewer?.let { v -> Viewer(v) { Nav.viewer.value = null } }
-        dl?.let { d ->
-            Column(
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 76.dp).padding(horizontal = 24.dp)
-                    .fillMaxWidth().background(Color(0xE6222222), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                val cur = (d.done + 1).coerceAtMost(d.total)
-                Text(if (d.done >= d.total) "다운로드 완료 ${d.total - d.failed}/${d.total}" else "다운로드 중 $cur/${d.total} · ${d.percent}%",
-                    color = Color.White, fontSize = 13.sp)
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { if (d.total == 0) 0f else (d.done + d.percent / 100f) / d.total },
-                    modifier = Modifier.fillMaxWidth())
-            }
-        }
     }
 }
