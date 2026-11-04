@@ -88,16 +88,21 @@ fun ChatLists(galleryMode: Boolean) {
         listOf<Pair<String, TdApi.ChatList>>("전체" to TdApi.ChatListMain(), "보관함" to TdApi.ChatListArchive()) +
                 folders.map { (it.name?.text?.text ?: "폴더") to TdApi.ChatListFolder(it.id) }
     }
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    if (tab >= tabs.size) tab = 0
+    var saved by rememberSaveable { mutableIntStateOf(0) }
     val query = ""
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = saved.coerceIn(0, tabs.size - 1)) { tabs.size }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(pager.currentPage) { saved = pager.currentPage }
 
     Column(Modifier.fillMaxSize()) {
-        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp, divider = {}) {
-            tabs.forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t.first, maxLines = 1) }) }
+        ScrollableTabRow(selectedTabIndex = pager.currentPage.coerceIn(0, tabs.size - 1), edgePadding = 8.dp, divider = {}) {
+            tabs.forEachIndexed { i, t ->
+                Tab(pager.currentPage == i, { scope.launch { pager.animateScrollToPage(i) } }, text = { Text(t.first, maxLines = 1) })
+            }
         }
-        key(tab, tabs.size) {
-            ChatListBody(tabs[tab].second, tabs[tab].first, galleryMode, query)
+        // 옆으로 밀면 옆 탭으로
+        androidx.compose.foundation.pager.HorizontalPager(pager, key = { "${tabs[it].first}#$it" }, modifier = Modifier.fillMaxSize()) { page ->
+            ChatListBody(tabs[page].second, tabs[page].first, galleryMode, query)
         }
     }
 }

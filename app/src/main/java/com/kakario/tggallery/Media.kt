@@ -230,3 +230,22 @@ class TdDataSource : BaseDataSource(true) {
         }
     }
 }
+
+
+/** 스트리밍 정리: 영상 화면을 나가면 받기를 멈추고 임시 파일도 지움 (다운로드 요청한 파일은 제외) */
+object Streams {
+    private val scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    fun stop(m: MediaItem) {
+        val id = m.main.id
+        val busy = Downloader.entries.value.any { it.item.main.id == id && (it.st == Downloader.St.RUN || it.st == Downloader.St.WAIT) }
+        if (busy) return
+        scope.launch {
+            repeat(2) {
+                Td.sendAsync(TdApi.CancelDownloadFile(id, false))
+                Td.sendAsync(TdApi.DeleteFile(id))
+                kotlinx.coroutines.delay(1500)
+            }
+        }
+    }
+}

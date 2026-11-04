@@ -199,7 +199,7 @@ private fun buildPlayer(ctx: Context, m: MediaItem): ExoPlayer =
 fun SimplePlayer(m: MediaItem) {
     val ctx = LocalContext.current
     val player = remember(m.key) { buildPlayer(ctx, m) }
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) { onDispose { player.release(); Streams.stop(m) } }
     AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } }, modifier = Modifier.fillMaxSize())
 }
 
@@ -218,7 +218,7 @@ fun VideoPage(
     val audio = remember { ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVol = remember { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
     val player = remember(m.key) { buildPlayer(ctx, m) }
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) { onDispose { player.release(); Streams.stop(m) } }
 
     var playing by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(true) }
