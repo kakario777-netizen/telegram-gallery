@@ -5,6 +5,9 @@ plugins {
 }
 
 val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+// 서명 키는 저장소에 두지 않고 GitHub Secrets에서 빌드할 때만 받아옴
+val ksPath: String? = System.getenv("TG_KEYSTORE_PATH")
+val ksPass: String? = System.getenv("TG_KEY_PASSWORD")
 
 android {
     namespace = "com.kakario.tggallery"
@@ -20,18 +23,18 @@ android {
     }
 
     signingConfigs {
-        create("rel") {
-            storeFile = file("release.jks")
-            storePassword = "tggallery"
+        if (ksPath != null && ksPass != null) create("rel") {
+            storeFile = file(ksPath)
+            storePassword = ksPass
             keyAlias = "tg"
-            keyPassword = "tggallery"
+            keyPassword = ksPass
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("rel")
+            signingConfig = signingConfigs.findByName("rel")
         }
     }
 
@@ -58,6 +61,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")

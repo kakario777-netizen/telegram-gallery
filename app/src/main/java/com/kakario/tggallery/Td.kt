@@ -31,7 +31,31 @@ object Td {
     /** 새 메시지·삭제 등 대화 화면에서 쓰는 업데이트 */
     val events = MutableSharedFlow<TdApi.Object>(extraBufferCapacity = 512)
 
-    private val prefs get() = appCtx.getSharedPreferences("tg", Context.MODE_PRIVATE)
+    /** api_id·api_hash는 안드로이드 보안 저장소(Keystore) 기반 암호화 저장 */
+    private val prefs: android.content.SharedPreferences by lazy { securePrefs(appCtx) }
+
+    private fun securePrefs(ctx: Context): android.content.SharedPreferences {
+        fun open(): android.content.SharedPreferences {
+            val key = androidx.security.crypto.MasterKey.Builder(ctx)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build()
+            return androidx.security.crypto.EncryptedSharedPreferences.create(
+                ctx, "tg_secure", key,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+        }
+        val sp = try { open() } catch (e: Exception) {
+            // 보안 저장소가 깨졌으면 지우고 새로 만듦 (키는 다시 입력)
+            ctx.deleteSharedPreferences("tg_secure"); open()
+        }
+        // 예전 버전의 일반 저장값을 암호화 저장소로 옮기고 원본은 지움
+        val old = ctx.getSharedPreferences("tg", Context.MODE_PRIVATE)
+        if (old.contains("api_id") || old.contains("api_hash")) {
+            sp.edit().putInt("api_id", old.getInt("api_id", 0)).putString("api_hash", old.getString("api_hash", "")).apply()
+            old.edit().clear().apply()
+            ctx.deleteSharedPreferences("tg")
+        }
+        return sp
+    }
 
     private fun readKeysSet() =
         prefs.getInt("api_id", 0) != 0 && !prefs.getString("api_hash", "").isNullOrBlank()
@@ -121,7 +145,7 @@ object Td {
         client?.send(p) { r ->
             if (r is TdApi.Error) {
                 clearKeys()
-                error.value = "API 키를 확인해 주세요 (${r.message})"
+                error.value = "API 키를 확인해 주세요"
             }
         }
     }

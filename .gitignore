@@ -7,3 +7,10 @@ local.properties
 app/src/main/jniLibs/
 app/src/main/java/org/drinkless/
 tdlib-out/
+# 서명 키·비밀값은 절대 올리지 않음
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+service-account*.json
