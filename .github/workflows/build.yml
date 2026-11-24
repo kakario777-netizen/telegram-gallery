@@ -1,10 +1,10 @@
 name: build
 
-# 릴리스할 때만 빌드: "v버전" 태그를 올리거나 직접 실행할 때
+# 릴리스할 때만 빌드: 커밋 메시지에 [release]가 있을 때만 실행
 # (pull_request로는 실행되지 않으므로 외부인의 풀 리퀘스트가 Secrets를 쓸 수 없음)
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
@@ -20,6 +20,7 @@ env:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     steps:
@@ -94,9 +95,9 @@ jobs:
           rm -f "$RUNNER_TEMP/release.jks"
 
       - name: 릴리스 올리기
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: v${{ env.APP_VER }}
+          target_commitish: ${{ github.sha }}
           name: 텔레그램 갤러리 ${{ env.APP_VER }}
           files: out/*.apk
