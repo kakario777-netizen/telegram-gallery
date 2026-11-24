@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   TD_COMMIT: 4c6377aa7386c39217878a9a56d581922ad37ca4
@@ -70,11 +70,13 @@ jobs:
         run: |
           gradle :app:assembleRelease --stacktrace
           mkdir -p out
-          cp app/build/outputs/apk/release/app-release.apk "out/telegram-gallery-0.4.${{ github.run_number }}.apk"
+          V=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp app/build/outputs/apk/release/app-release.apk "out/telegram-gallery-$V.apk"
 
-      - name: 릴리스 올리기
-        uses: softprops/action-gh-release@v2
+      # 완성 파일은 공개 릴리스 저장소(telegram-gallery-release)에 따로 올림
+      - name: APK 보관
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v0.4.${{ github.run_number }}
-          name: 텔레그램 갤러리 0.4.${{ github.run_number }}
-          files: out/*.apk
+          name: apk
+          path: out/*.apk
+          retention-days: 30
