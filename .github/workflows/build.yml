@@ -75,15 +75,16 @@ jobs:
       # 서명 키는 GitHub Secrets에서만 꺼내 임시 폴더에 풀고, 로그에는 찍지 않음
       - name: 서명 키 준비
         env:
-          TG_KEYSTORE_B64: ${{ secrets.TG_KEYSTORE_B64 }}
+          TG_SIGNING: ${{ secrets.TG_SIGNING }}
         run: |
-          if [ -z "$TG_KEYSTORE_B64" ]; then echo "::error::TG_KEYSTORE_B64 Secret이 없습니다"; exit 1; fi
-          printf '%s' "$TG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          if [ -z "$TG_SIGNING" ]; then echo "::error::TG_SIGNING Secret이 없습니다"; exit 1; fi
+          PASS="${TG_SIGNING%%:*}"
+          echo "::add-mask::$PASS"
+          printf '%s' "${TG_SIGNING#*:}" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "TG_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "TG_KEY_PASSWORD=$PASS" >> "$GITHUB_ENV"
 
       - name: APK 빌드
-        env:
-          TG_KEY_PASSWORD: ${{ secrets.TG_KEY_PASSWORD }}
         run: |
           gradle :app:assembleRelease
           mkdir -p out
